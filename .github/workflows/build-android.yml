@@ -3,27 +3,33 @@ name: Build Android APK (Wails mobile migration)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   android:
+    name: Android toolchain / migration scaffold
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.22.x'
-          cache: true
+          cache: false
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
 
       - name: Install Android SDK/NDK
         run: |
@@ -42,14 +48,17 @@ jobs:
           adb version || true
           wails3 version || true
 
-      - name: Validate mobile migration files
+      - name: Validate migration files
         run: |
           test -f android/README.md
           test -f android/MIGRATION.md
-          echo "This repository contains the Android migration scaffold."
+          test -f go.mod
+          echo "Android migration scaffold is present."
 
       - name: Upload Android migration package
         uses: actions/upload-artifact@v4
         with:
           name: WarpScoutChain-Android-migration-scaffold
           path: android/
+          if-no-files-found: error
+          retention-days: 14
