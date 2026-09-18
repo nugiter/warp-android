@@ -1,0 +1,13 @@
+# Go
+bin/
+*.test
+*.out
+
+# Wails build output
+build/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
