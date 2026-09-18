@@ -1,64 +1,146 @@
-name: Build Android APK (Wails mobile migration)
+name: Build Android APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "frontend/**"
+      - "Taskfile.yml"
+      - "build/config.yml"
+      - ".github/workflows/build-android.yml"
 
 permissions:
   contents: read
 
 jobs:
   android:
-    name: Android toolchain / migration scaffold
+    name: Android arm64 APK
     runs-on: ubuntu-24.04
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set up Go
+      - name: Setup Go 1.25
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: "1.25.x"
           cache: false
 
-      - name: Set up Java
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.x"
+
+      - name: Setup Java 17
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: ''
 
       - name: Install Android SDK/NDK
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
           yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> "$GITHUB_ENV"
 
-      - name: Install Wails v3 CLI
+      - name: Install Wails v3
+        shell: bash
         run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          wails3 version
 
-      - name: Show tool versions
+      - name: Sync Wails v3 build assets
+        shell: bash
         run: |
-          go version
-          java -version
-          adb version || true
-          wails3 version || true
+          rm -rf /tmp/wails-v3
+          git clone --depth 1 --branch v3.0.0-beta.23 https://github.com/wailsapp/wails.git /tmp/wails-v3
+          rm -rf build
+          cp -R /tmp/wails-v3/v3/examples/mobile/build ./build
+          cp /tmp/wails-v3/v3/examples/mobile/Taskfile.yml ./Taskfile.yml
+          cp /tmp/wails-v3/v3/examples/mobile/build/config.yml /tmp/wails-mobile-config.yml
+          # Restore this project's metadata after importing the official task/build tree.
+          cat > build/config.yml <<'CONFIG'
+version: '3'
+info:
+  companyName: "WarpScout Developer"
+  productName: "WarpScout Chain"
+  productIdentifier: "com.warpscout.chain"
+  description: "Warp endpoint scanner and configuration generator"
+  copyright: "Copyright 2026"
+  comments: "Warp-on-Warp AI Unlocker"
+  version: "1.0.0"
+CONFIG
+          # Ensure project-specific task variables remain authoritative.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Taskfile.yml')
+          s=p.read_text().replace('APP_NAME: "mobile"','APP_NAME: "WarpScoutChain"')
+          p.write_text(s)
+          PY
 
-      - name: Validate migration files
+      - name: Generate Android overlay
+        shell: bash
+        run: wails3 android overlay:gen -out build/android/overlay.json -config build/config.yml
+
+      - name: Generate Android bindings
+        shell: bash
+        env:
+          GOOS: android
+          CGO_ENABLED: "0"
         run: |
-          test -f android/README.md
-          test -f android/MIGRATION.md
-          test -f go.mod
-          echo "Android migration scaffold is present."
+          rm -rf frontend/bindings
+          wails3 generate bindings -f '-tags android' -clean=true
+          binding=$(grep -RIl "GenerateConfigs" frontend/bindings | head -n 1 || true)
+          if [ -z "$binding" ]; then
+            echo "Could not locate generated WarpScoutService binding"
+            find frontend/bindings -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+          rel="${binding#frontend/}"
+          case "$rel" in
+            *.ts) ext="ts";;
+            *.js) ext="js";;
+            *) echo "Unsupported binding file: $rel"; exit 1;;
+          esac
+          cat > frontend/generated-app.js <<EOF2
+          export { WarpScoutService } from "./${rel}";
+          EOF2
+          echo "Using binding: frontend/$rel"
 
-      - name: Upload Android migration package
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Tidy Go modules
+        run: go mod tidy
+
+      - name: Verify Android toolchain
+        run: wails3 doctor
+
+      - name: Build and package release APK
+        run: wails3 task android:package ARCH=arm64
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -f bin/WarpScoutChain.apk
+          ls -lh bin/WarpScoutChain.apk
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WarpScoutChain-Android-migration-scaffold
-          path: android/
+          name: WarpScoutChain-Android-arm64
+          path: bin/WarpScoutChain.apk
           if-no-files-found: error
           retention-days: 14

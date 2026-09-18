@@ -3,20 +3,21 @@ name: Build Windows EXE
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
     paths:
-      - "**.go"
+      - "**/*.go"
       - "go.mod"
       - "go.sum"
-      - "wails.json"
       - "frontend/**"
+      - "Taskfile.yml"
+      - "build/config.yml"
       - ".github/workflows/build-windows.yml"
 
 permissions:
   contents: read
 
 jobs:
-  build-windows:
+  windows:
     name: Windows x64
     runs-on: windows-latest
 
@@ -24,55 +25,75 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Go
+      - name: Setup Go 1.25
         uses: actions/setup-go@v6
         with:
-          go-version: "1.22.x"
+          go-version: "1.25.x"
           cache: false
 
-      - name: Setup Node.js
+      - name: Setup Node.js 24
         uses: actions/setup-node@v5
         with:
-          node-version: "20.x"
+          node-version: "24.x"
 
-      - name: Install Wails CLI
+      - name: Install Wails v3
         shell: pwsh
         run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.9.2
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.23
           "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          wails version
+          wails3 version
 
-      - name: Download Go modules
-        run: go mod download
-
-      - name: Verify source formatting
+      - name: Sync Wails v3 build assets
         shell: pwsh
         run: |
-          $diff = gofmt -d main.go app.go
-          if ($diff) {
-            Write-Host $diff
-            exit 1
-          }
+          git clone --depth 1 --branch v3.0.0-beta.23 https://github.com/wailsapp/wails.git "$env:RUNNER_TEMP\wails-v3"
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
+          Copy-Item -Recurse "$env:RUNNER_TEMP\wails-v3\v3\examples\mobile\build" "build"
+          Copy-Item "$env:RUNNER_TEMP\wails-v3\v3\examples\mobile\Taskfile.yml" "Taskfile.yml"
+          (Get-Content Taskfile.yml) -replace 'APP_NAME: "mobile"', 'APP_NAME: "WarpScoutChain"' | Set-Content Taskfile.yml
+          @'
+version: '3'
+info:
+  companyName: "WarpScout Developer"
+  productName: "WarpScout Chain"
+  productIdentifier: "com.warpscout.chain"
+  description: "Warp endpoint scanner and configuration generator"
+  copyright: "Copyright 2026"
+  comments: "Warp-on-Warp AI Unlocker"
+  version: "1.0.0"
+'@ | Set-Content build/config.yml
+
+      - name: Generate bindings
+        shell: pwsh
+        run: |
+          wails3 generate bindings -clean=true
+          $binding = Get-ChildItem -Recurse frontend/bindings -File | Where-Object { Select-String -Path $_.FullName -Pattern "GenerateConfigs" -Quiet } | Select-Object -First 1
+          if (-not $binding) { throw "Generated binding not found" }
+          $rel = $binding.FullName.Substring((Resolve-Path frontend).Path.Length + 1).Replace('\','/')
+          "export { WarpScoutService } from './$rel';" | Set-Content frontend/generated-app.js
+          Write-Host "Using binding: $rel"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Tidy Go modules
+        run: go mod tidy
 
       - name: Build Windows EXE
-        run: wails build -clean -platform windows/amd64 -ldflags "-s -w -H windowsgui"
+        run: wails3 task windows:build
 
       - name: Verify EXE
         shell: pwsh
         run: |
-          $exe = "build\bin\WarpScoutChain.exe"
-          if (!(Test-Path $exe)) {
-            Write-Error "EXE not found: $exe"
-            exit 1
-          }
-          $item = Get-Item $exe
-          Write-Host "Built: $($item.FullName)"
-          Write-Host "Size: $([math]::Round($item.Length / 1MB, 2)) MB"
+          $exe = "bin\WarpScoutChain.exe"
+          if (!(Test-Path $exe)) { throw "EXE not found: $exe" }
+          Get-Item $exe | Format-List FullName,Length
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: WarpScoutChain-Windows-x64
-          path: build/bin/WarpScoutChain.exe
+          path: bin/WarpScoutChain.exe
           if-no-files-found: error
           retention-days: 14
