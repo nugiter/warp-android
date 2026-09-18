@@ -1,11 +1,13 @@
-# WarpScout Chain — Android migration package
+# Android build status
 
-This directory is the Android migration scaffold for the existing Wails v2 desktop application.
+This repository currently contains a Wails v2 desktop application plus an Android migration scaffold.
 
-## Important
+The Android workflow intentionally validates the Android/Java/Wails v3 toolchain and uploads the migration notes; it does **not** claim to produce a final APK yet. The existing application imports `github.com/wailsapp/wails/v2` and uses the Wails v2 desktop runtime API, so a real Android APK requires migration to the Wails v3 mobile API first.
 
-The source project is Wails v2.9.2. Wails v2's stable CLI supports desktop targets; native Android/iOS support is part of the newer Wails v3 mobile work and is currently experimental. Therefore this package deliberately does **not** claim that the existing v2 source can be turned into a working APK by merely adding an Android workflow.
+The GitHub Actions warnings have been addressed by using Node 24-compatible action versions:
+- `actions/checkout@v5`
+- `actions/setup-go@v6`
+- `actions/setup-java@v6`
+- `android-actions/setup-android@v4`
 
-The GitHub Actions workflow installs the Android SDK/NDK/JDK and Wails v3 CLI and validates the migration scaffold. The next implementation step is migrating the Wails v2 bridge (`wails.Run`, `runtime.EventsEmit`, generated `window.go.main.App.*`) to the Wails v3 Android bridge or to a dedicated JNI/gomobile bridge.
-
-The existing Windows build remains unchanged.
+Go module caching is disabled in the Android workflow because the repository currently has no `go.sum`; this removes the `go.sum` cache warning. Once dependencies are resolved and a committed `go.sum` is added, caching can be enabled again.
