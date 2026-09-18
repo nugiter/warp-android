@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>WarpScout Chain</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0b0f19; color: #e2e8f0; padding: 18px; user-select: none; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 10px; margin-bottom: 14px; }
+    .title { font-size: 17px; font-weight: 700; color: #38bdf8; }
+    .badge { font-size: 11px; background: #0369a1; color: #e0f2fe; padding: 2px 8px; border-radius: 99px; }
+    .section { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+    label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; display: block; font-weight: 500; }
+    .radio-group { display: flex; gap: 16px; font-size: 13px; }
+    .input-box { background: #1f2937; border: 1px solid #374151; border-radius: 6px; padding: 6px 10px; color: #fff; width: 100px; font-size: 13px; }
+    .btn-main { width: 100%; background: #2563eb; color: #fff; border: none; padding: 12px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+    .btn-main:hover { background: #1d4ed8; }
+    
+    .scan-dashboard { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 10px 12px; margin-top: 10px; display: none; }
+    .scan-info-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+    .progress-bar-bg { width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; }
+    .progress-bar-val { width: 0%; height: 100%; background: #38bdf8; transition: width 0.1s; }
+
+    .log-header-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 4px; }
+    .btn-copy-log { background: #1e293b; border: 1px solid #374151; color: #38bdf8; padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+    .btn-copy-log:hover { background: #334155; color: #fff; }
+
+    .log-box { background: #030712; border: 1px solid #1f2937; border-radius: 6px; padding: 10px; height: 125px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #34d399; white-space: pre-wrap; word-break: break-all; }
+    
+    .output-box { margin-top: 12px; display: none; }
+    .export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .btn-export { background: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 9px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; text-align: center; }
+    .btn-export:hover { background: #334155; color: #38bdf8; }
+    .sub-input { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; color: #38bdf8; font-family: monospace; font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">WarpScout Chain</div>
+    <span class="badge">多节点自动故障转移</span>
+  </div>
+
+  <div class="section">
+    <label>[1] 抗封锁外层协议 (Outer Tunnel)</label>
+    <div class="radio-group">
+      <label><input type="radio" name="proto" value="awg" checked> AmneziaWG (推荐)</label>
+      <label><input type="radio" name="proto" value="h2"> MASQUE (H2)</label>
+      <label><input type="radio" name="proto" value="h3"> MASQUE (H3)</label>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>[2] 优选节点生成数量 (Endpoint Count)</label>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <input type="number" id="epCount" class="input-box" value="10" min="1" max="30">
+      <span style="font-size: 12px; color: #94a3b8;">个（自动生成多节点聚合与测速排序组）</span>
+    </div>
+  </div>
+
+  <button class="btn-main" id="btnStart" onclick="startRun()">🚀 开始真实测速与多节点组装</button>
+
+  <div class="scan-dashboard" id="scanDashboard">
+    <div class="scan-info-row">
+      <span id="scanStatus">正在并发探测延迟与速度...</span>
+      <span id="scanCount">0 / 0</span>
+    </div>
+    <div class="progress-bar-bg"><div class="progress-bar-val" id="scanBar"></div></div>
+    <div class="scan-info-row" style="margin-top: 6px; color: #94a3b8; font-size: 11px;">
+      <span id="currentTestAddr">当前端点: -</span>
+      <span id="currentLatency">-</span>
+    </div>
+  </div>
+
+  <div class="log-header-row">
+    <span style="font-size: 12px; color: #94a3b8; font-weight: 500;">运行日志:</span>
+    <button id="btnCopyLog" class="btn-copy-log" onclick="copyLogContent()">📋 复制日志</button>
+  </div>
+  <div class="log-box" id="logWindow">[准备就绪] 点击上方按钮开始执行...</div>
+
+  <div class="output-box" id="outputBox">
+    <label>Sing-box 本地订阅链接:</label>
+    <input type="text" id="subUrl" class="sub-input" readonly value="http://127.0.0.1:8888/sub">
+
+    <label style="margin-top: 10px;">点击直接下载包含多节点与测速排序的配置：</label>
+    <div class="export-grid">
+      <button class="btn-export" onclick="downloadFile('warp-singbox-multi.json', jsonData)">⚡ 导出 Sing-box (多节点JSON)</button>
+      <button class="btn-export" onclick="downloadFile('warp-clash-multi.yaml', yamlData)">⚡ 导出 Clash-Meta (多节点YAML)</button>
+      <button class="btn-export" style="grid-column: span 2;" onclick="window.location.href='http://127.0.0.1:8888/download-zip'">📦 下载 WireGuard 10节点配置 (.zip)</button>
+    </div>
+  </div>
+
+  <script>
+    let jsonData = "", yamlData = "";
+
+    function appendLog(msg) {
+      const box = document.getElementById('logWindow');
+      box.innerText += "\n" + msg;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function copyLogContent() {
+      const text = document.getElementById('logWindow').innerText;
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showCopySuccess();
+        }).catch(() => {
+          fallbackCopy(text);
+        });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      showCopySuccess();
+    }
+
+    function showCopySuccess() {
+      const btn = document.getElementById('btnCopyLog');
+      const oldText = btn.innerText;
+      btn.innerText = "✔ 日志已复制";
+      btn.style.color = "#34d399";
+      setTimeout(() => {
+        btn.innerText = oldText;
+        btn.style.color = "#38bdf8";
+      }, 2000);
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      if (window.runtime && window.runtime.EventsOn) {
+        window.runtime.EventsOn("log", function(msg) {
+          appendLog(msg);
+        });
+
+        window.runtime.EventsOn("scan_progress", function(data) {
+          document.getElementById('scanDashboard').style.display = 'block';
+          document.getElementById('scanBar').style.width = data.percent + '%';
+          document.getElementById('scanCount').innerText = `${data.current} / ${data.total} (${data.percent}%)`;
+          document.getElementById('currentTestAddr').innerText = '测试中: ' + data.ip;
+          if (data.latency > 0) {
+            document.getElementById('currentLatency').innerText = '延迟: ' + data.latency + 'ms';
+          } else {
+            document.getElementById('currentLatency').innerText = '超时';
+          }
+        });
+      }
+    });
+
+    async function startRun() {
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('outputBox').style.display = 'none';
+      document.getElementById('scanDashboard').style.display = 'block';
+      document.getElementById('logWindow').innerText = "[任务启动] 开始端点网络测速与 API 凭证注册...";
+
+      try {
+        const proto = document.querySelector('input[name="proto"]:checked').value;
+        const count = parseInt(document.getElementById('epCount').value) || 10;
+        const res = await window.go.main.App.GenerateConfigs(proto, count);
+        jsonData = res.singbox;
+        yamlData = res.clashYaml;
+
+        document.getElementById('subUrl').value = res.subUrl;
+        document.getElementById('outputBox').style.display = 'block';
+      } catch (err) {
+        appendLog("[错误] " + err);
+      } finally {
+        document.getElementById('btnStart').disabled = false;
+      }
+    }
+
+    function downloadFile(filename, content) {
+      if (!content) return;
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    }
+  </script>
+</body>
+</html>
