@@ -20,35 +20,35 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"golang.org/x/crypto/curve25519"
 )
 
-type App struct {
-	ctx        context.Context
+type WarpScoutService struct {
+	app        *application.App
 	subContent string
 	subMutex   sync.RWMutex
 	zipContent []byte
 }
 
-func NewApp() *App {
-	return &App{}
+func NewWarpScoutService(app *application.App) *WarpScoutService {
+	return &WarpScoutService{app: app}
 }
 
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+func (a *WarpScoutService) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
 	go a.startLocalServer()
+	return nil
 }
 
-func (a *App) sendLog(msg string) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "log", fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg))
+func (a *WarpScoutService) sendLog(msg string) {
+	if a.app != nil {
+		a.app.Event.Emit("log", fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), msg))
 	}
 }
 
-func (a *App) sendProgress(current, total int, currentIP string, latency int64, loss float64) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "scan_progress", map[string]interface{}{
+func (a *WarpScoutService) sendProgress(current, total int, currentIP string, latency int64, loss float64) {
+	if a.app != nil {
+		a.app.Event.Emit("scan_progress", map[string]interface{}{
 			"current": current,
 			"total":   total,
 			"ip":      currentIP,
@@ -59,7 +59,7 @@ func (a *App) sendProgress(current, total int, currentIP string, latency int64, 
 	}
 }
 
-func (a *App) startLocalServer() {
+func (a *WarpScoutService) startLocalServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sub", func(w http.ResponseWriter, r *http.Request) {
 		a.subMutex.RLock()
@@ -171,7 +171,7 @@ func generateWireguardKeyPair() (string, string, error) {
 	return base64.StdEncoding.EncodeToString(priv[:]), base64.StdEncoding.EncodeToString(pub[:]), nil
 }
 
-func (a *App) RegisterCloudflareAccount(tag string) (*WarpAccount, error) {
+func (a *WarpScoutService) RegisterCloudflareAccount(tag string) (*WarpAccount, error) {
 	a.sendLog(fmt.Sprintf("向官方 API 申请真实 WARP 身份凭证 [%s]...", tag))
 	priv, pub, err := generateWireguardKeyPair()
 	if err != nil {
@@ -358,7 +358,7 @@ func buildUniversalTaskPool() []ScanTask {
 	return tasks
 }
 
-func (a *App) RunWarpScoutFullEngine(maxCount int) ([]EndpointResult, error) {
+func (a *WarpScoutService) RunWarpScoutFullEngine(maxCount int) ([]EndpointResult, error) {
 	taskList := buildUniversalTaskPool()
 	total := len(taskList)
 
@@ -440,7 +440,7 @@ func (a *App) RunWarpScoutFullEngine(maxCount int) ([]EndpointResult, error) {
 }
 
 // 解决参数签名报错：接收 protocol (string) 和 count (int) 两个参数
-func (a *App) GenerateConfigs(protocol string, count int) (map[string]string, error) {
+func (a *WarpScoutService) GenerateConfigs(protocol string, count int) (map[string]string, error) {
 	if count <= 0 {
 		count = 10
 	}
@@ -765,6 +765,7 @@ rules:
 		"clashYaml": clashYaml,
 		"subUrl":    "http://127.0.0.1:8888/sub",
 		"zipUrl":    "http://127.0.0.1:8888/download-zip",
+		"zipBase64": base64.StdEncoding.EncodeToString(a.zipContent),
 		"best":      fmt.Sprintf("%s (%.1fMbps / %dms)", endpoints[0].IP, endpoints[0].SpeedMbps, endpoints[0].Latency),
 	}, nil
 }
