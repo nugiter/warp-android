@@ -85,11 +85,15 @@
     <div class="export-grid">
       <button class="btn-export" onclick="downloadFile('warp-singbox-multi.json', jsonData)">⚡ 导出 Sing-box (多节点JSON)</button>
       <button class="btn-export" onclick="downloadFile('warp-clash-multi.yaml', yamlData)">⚡ 导出 Clash-Meta (多节点YAML)</button>
-      <button class="btn-export" style="grid-column: span 2;" onclick="window.location.href='http://127.0.0.1:8888/download-zip'">📦 下载 WireGuard 10节点配置 (.zip)</button>
+      <button class="btn-export" style="grid-column: span 2;" onclick="downloadZip()">📦 下载 WireGuard 10节点配置 (.zip)</button>
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import "@wailsio/runtime";
+    import { Events } from "@wailsio/runtime";
+    import { WarpScoutService } from "./generated-app.js";
+
     let jsonData = "", yamlData = "";
 
     function appendLog(msg) {
@@ -135,23 +139,20 @@
       }, 2000);
     }
 
-    window.addEventListener("DOMContentLoaded", () => {
-      if (window.runtime && window.runtime.EventsOn) {
-        window.runtime.EventsOn("log", function(msg) {
-          appendLog(msg);
-        });
+    Events.On("log", (event) => {
+      appendLog(event.data);
+    });
 
-        window.runtime.EventsOn("scan_progress", function(data) {
-          document.getElementById('scanDashboard').style.display = 'block';
-          document.getElementById('scanBar').style.width = data.percent + '%';
-          document.getElementById('scanCount').innerText = `${data.current} / ${data.total} (${data.percent}%)`;
-          document.getElementById('currentTestAddr').innerText = '测试中: ' + data.ip;
-          if (data.latency > 0) {
-            document.getElementById('currentLatency').innerText = '延迟: ' + data.latency + 'ms';
-          } else {
-            document.getElementById('currentLatency').innerText = '超时';
-          }
-        });
+    Events.On("scan_progress", (event) => {
+      const data = event.data;
+      document.getElementById('scanDashboard').style.display = 'block';
+      document.getElementById('scanBar').style.width = data.percent + '%';
+      document.getElementById('scanCount').innerText = `${data.current} / ${data.total} (${data.percent}%)`;
+      document.getElementById('currentTestAddr').innerText = '测试中: ' + data.ip;
+      if (data.latency > 0) {
+        document.getElementById('currentLatency').innerText = '延迟: ' + data.latency + 'ms';
+      } else {
+        document.getElementById('currentLatency').innerText = '超时';
       }
     });
 
@@ -164,9 +165,10 @@
       try {
         const proto = document.querySelector('input[name="proto"]:checked').value;
         const count = parseInt(document.getElementById('epCount').value) || 10;
-        const res = await window.go.main.App.GenerateConfigs(proto, count);
+        const res = await WarpScoutService.GenerateConfigs(proto, count);
         jsonData = res.singbox;
         yamlData = res.clashYaml;
+        window.__zipBase64 = res.zipBase64 || "";
 
         document.getElementById('subUrl').value = res.subUrl;
         document.getElementById('outputBox').style.display = 'block';
@@ -177,6 +179,20 @@
       }
     }
 
+
+    function downloadZip() {
+      if (!window.__zipBase64) return;
+      const binary = atob(window.__zipBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/zip" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "warp-wireguard-nodes.zip";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
     function downloadFile(filename, content) {
       if (!content) return;
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -185,6 +201,11 @@
       a.download = filename;
       a.click();
     }
+
+    window.startRun = startRun;
+    window.downloadFile = downloadFile;
+    window.downloadZip = downloadZip;
+    window.copyLogContent = copyLogContent;
   </script>
 </body>
 </html>

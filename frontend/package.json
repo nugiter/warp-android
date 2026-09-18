@@ -1,0 +1,16 @@
+{
+  "name": "warpscout-chain-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@wailsio/runtime": "3.0.0-beta.22"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}
